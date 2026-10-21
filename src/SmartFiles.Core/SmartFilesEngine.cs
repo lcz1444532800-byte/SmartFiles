@@ -33,7 +33,7 @@ public sealed class SmartFilesEngine : IAsyncDisposable {
   var rows=History.Read<FileTask>("pending");var ids=rows.Select(x=>x.Id).ToHashSet();foreach(var id in pending.Keys.Where(x=>!ids.Contains(x)))pending.TryRemove(id,out _);
   foreach(var task in rows){if(!File.Exists(task.Path)){History.Delete("pending",task.Id);pending.TryRemove(task.Id,out _);continue;}if(task.Features.Length>256||task.Features!=PrivacyBoundary.Text(task.Name,256)){task.Features=PrivacyBoundary.Text(task.Name,256);History.Put("pending",task.Id,task);}pending[task.Id]=task;admitted[task.Stamp.Id]=0;}
  }
- public async Task ProcessExternalAsync(FileTask task,CancellationToken ct){Settings.Reload();History.ConfigureRetention(Settings.Value.HistoryMaxCount,Settings.Value.HistoryMaxDays);worker.IdleSeconds=Settings.Value.WorkerIdleSeconds;pending[task.Id]=task;admitted[task.Stamp.Id]=0;task.Status="分析中";History.Put("pending",task.Id,task);queue.Writer.TryWrite(task);while(pending.TryGetValue(task.Id,out var current)&&current.Status=="分析中"){await Task.Delay(50,ct);}pending.TryRemove(task.Id,out _);admitted.TryRemove(task.Stamp.Id,out _); }
+ public async Task ProcessExternalAsync(FileTask task,CancellationToken ct){Settings.Reload();History.ConfigureRetention(Settings.Value.HistoryMaxCount,Settings.Value.HistoryMaxDays);worker.IdleSeconds=Settings.Value.WorkerIdleSeconds;pending[task.Id]=task;admitted[task.Stamp.Id]=0;task.Status="Analyzing";History.Put("pending",task.Id,task);queue.Writer.TryWrite(task);while(pending.TryGetValue(task.Id,out var current)&&current.Status=="Analyzing"){await Task.Delay(50,ct);}pending.TryRemove(task.Id,out _);admitted.TryRemove(task.Stamp.Id,out _); }
  public List<Source> Discover(){
   var known=Settings.Value.Sources;
   foreach(var s in new SourceDiscovery().Discover(Settings.Value.Root))if(!known.Any(x=>string.Equals(x.Path,s.Path,StringComparison.OrdinalIgnoreCase)))known.Add(s);
@@ -44,10 +44,10 @@ public sealed class SmartFilesEngine : IAsyncDisposable {
   StopMonitoring();
   foreach(var s in Settings.Value.Sources.Where(x=>x.Enabled&&x.Policy!=SourcePolicy.Ignore)){
    try{
-    if(FileIdentity.Under(s.Path,Settings.Home)||string.Equals(s.Path,Path.GetPathRoot(s.Path),StringComparison.OrdinalIgnoreCase))throw new IOException("禁止监控程序目录或整盘");
-    if((string.Equals(Path.GetFullPath(s.Path),Settings.Value.Root,StringComparison.OrdinalIgnoreCase)||FileIdentity.Under(s.Path,Settings.Value.Root))&&!string.Equals(Path.GetFullPath(s.Path),Path.Combine(Settings.Value.Root,"_Inbox"),StringComparison.OrdinalIgnoreCase))throw new IOException("只允许监控分类根目录中的 _Inbox");
+    if(FileIdentity.Under(s.Path,Settings.Home)||string.Equals(s.Path,Path.GetPathRoot(s.Path),StringComparison.OrdinalIgnoreCase))throw new IOException("Monitoring the application folder or an entire drive is not allowed");
+    if((string.Equals(Path.GetFullPath(s.Path),Settings.Value.Root,StringComparison.OrdinalIgnoreCase)||FileIdentity.Under(s.Path,Settings.Value.Root))&&!string.Equals(Path.GetFullPath(s.Path),Path.Combine(Settings.Value.Root,"_Inbox"),StringComparison.OrdinalIgnoreCase))throw new IOException("Only _Inbox can be monitored inside the category root");
     var watcher=await Task.Run(()=>new SourceWatcher(s,Accept,Cancel,FaultMessage));watchers.Add(watcher);
-   }catch(Exception e){Log.Write("source_start_failed",e);FaultMessage(s.Name+" 无法监听："+e.Message);}
+   }catch(Exception e){Log.Write("source_start_failed",e);FaultMessage(s.Name+" Cannot monitor: "+e.Message);}
   }
   Settings.Value.Monitoring=watchers.Count>0;Settings.Save();Updated?.Invoke();
  }
@@ -56,9 +56,9 @@ public sealed class SmartFilesEngine : IAsyncDisposable {
  void Accept(string path,Source source,Stamp stamp,DateTime seen){
   if(!Settings.Value.Classification||stop.IsCancellationRequested||!admitted.TryAdd(stamp.Id,0))return;
   string batchId;lock(batchGate){if((seen-lastSeen).TotalMilliseconds>Settings.Value.BatchWindowMs){batch=Guid.NewGuid().ToString("N");if(imageBudget.Count>100)imageBudget.Clear();}lastSeen=seen;batchId=batch;}
-  var task=new FileTask{Path=path,SourcePath=source.Path,SourceName=source.Name,Stamp=stamp,SeenUtc=seen,Status="分析中",BatchId=batchId};
+  var task=new FileTask{Path=path,SourcePath=source.Path,SourceName=source.Name,Stamp=stamp,SeenUtc=seen,Status="Analyzing",BatchId=batchId};
   pending[task.Id]=task;History.Put("pending",task.Id,task);
-  if(!queue.Writer.TryWrite(task)){task.Status="待确认";task.Note="队列已满，未进行 AI 分析";Save(task);}
+  if(!queue.Writer.TryWrite(task)){task.Status="Pending";task.Note="Queue full; AI analysis was skipped";Save(task);}
   Updated?.Invoke();
  }
  void Cancel(string path){
@@ -78,7 +78,7 @@ public sealed class SmartFilesEngine : IAsyncDisposable {
     var recommendation=classifier.Classify(evidence,task.SourceName,nodes);
     Dictionary<string,double>? semantic=null;
     if(recommendation.Confidence<Settings.Value.LocalThreshold&&Settings.Value.LocalAi){
-     if(evidence.Image&&Settings.Value.Ocr)try{var text=await ocr.ReadAsync(task.Path,ct);if(text.Length>0)evidence=evidence with{Text=text,OcrDerived=true};}catch(Exception e) when(e is not OperationCanceledException){task.Note="OCR 不可用，已降级";}
+     if(evidence.Image&&Settings.Value.Ocr)try{var text=await ocr.ReadAsync(task.Path,ct);if(text.Length>0)evidence=evidence with{Text=text,OcrDerived=true};}catch(Exception e) when(e is not OperationCanceledException){task.Note="OCR unavailable; using fallback";}
      try{
       var result=await worker.RequestAsync(new{op="route",text=evidence.Name+" "+evidence.Metadata+" "+evidence.Text,nodes=nodes.Where(n=>!n.Label.StartsWith("_")).Select(n=>new{id=n.Id,text=n.Label+" "+n.Description+" "+n.Keywords})},ct);
       semantic=result.GetProperty("scores").Deserialize<Dictionary<string,double>>();
@@ -86,25 +86,25 @@ public sealed class SmartFilesEngine : IAsyncDisposable {
       recommendation=classifier.Classify(evidence,task.SourceName,nodes);
       if(semantic is {Count:>0}&&recommendation.Confidence<.75){
        var best=semantic.OrderByDescending(x=>x.Value).Take(2).ToArray();
-       if(best.Length==2&&best[0].Value>.75&&best[0].Value-best[1].Value>.06)recommendation=new(best[0].Key,.78,"OCR / BGE候选");
+       if(best.Length==2&&best[0].Value>.75&&best[0].Value-best[1].Value>.06)recommendation=new(best[0].Key,.78,"OCR / BGE candidates");
       }
-     }catch(Exception e) when(e is not OperationCanceledException){task.Note="本地语义暂不可用，保留规则结果";}
+     }catch(Exception e) when(e is not OperationCanceledException){task.Note="Local semantics unavailable; keeping rule results";}
     }
-    if(evidence.Image&&evidence.Text.Length<24&&recommendation.Confidence<Settings.Value.LocalThreshold&&Settings.Value.LocalAi){try{var v=await new ImageAnalyzer(worker).AnalyzeAsync(task.Path,evidence,nodes,ct);evidence=v.Evidence;if(v.Suggestion!=null)recommendation=v.Suggestion;}catch(Exception ex) when(ex is not OperationCanceledException){task.Note+=" 本地视觉暂不可用";}}
+    if(evidence.Image&&evidence.Text.Length<24&&recommendation.Confidence<Settings.Value.LocalThreshold&&Settings.Value.LocalAi){try{var v=await new ImageAnalyzer(worker).AnalyzeAsync(task.Path,evidence,nodes,ct);evidence=v.Evidence;if(v.Suggestion!=null)recommendation=v.Suggestion;}catch(Exception ex) when(ex is not OperationCanceledException){task.Note+=" Local vision is temporarily unavailable";}}
     var rankingText=evidence.Name+" "+evidence.Metadata+" "+evidence.Text;task.Features=PrivacyBoundary.Text(evidence.Name,256);evidence=evidence with{LocalConfidence=recommendation.Confidence};
     Apply(task,recommendation);
     var candidates=selector.Select(rankingText,nodes,Settings.Value.CandidateCount,semantic);
     if(recommendation.Confidence<Settings.Value.LocalThreshold){
      if(evidence.Image&&imageBudget.AddOrUpdate(task.BatchId,1,(_,n)=>n+1)>Settings.Value.ImageApiBudgetPerBatch){
-      task.Note+=" 批次视觉 API 额度已用完，等待人工确认";Finish(task);cancellation.Dispose();active.TryRemove(task.Id,out _);
+      task.Note+=" Batch vision API budget reached; manual review needed";Finish(task);cancellation.Dispose();active.TryRemove(task.Id,out _);
      }else {var remoteTask=Remote(task,evidence,candidates,cancellation);remote[task.Id]=remoteTask;_ = remoteTask.ContinueWith(completed=>{remote.TryRemove(task.Id,out var ignored);},TaskScheduler.Default);}
     }else {Finish(task);cancellation.Dispose();active.TryRemove(task.Id,out _);}
    }catch(OperationCanceledException){active.TryRemove(task.Id,out _);cancellation.Dispose();}
-    catch(Exception e){Log.Write("classification_failed",e);task.Note="分析失败，可手动选择分类";Finish(task);active.TryRemove(task.Id,out _);cancellation.Dispose();}
+    catch(Exception e){Log.Write("classification_failed",e);task.Note="Analysis failed; select a category manually";Finish(task);active.TryRemove(task.Id,out _);cancellation.Dispose();}
   }}catch(OperationCanceledException){}
  }
  void Apply(FileTask task,Recommendation r){
-  task.FolderId=r.FolderId;task.TargetLabel=Taxonomy.Nodes.FirstOrDefault(n=>n.Id==r.FolderId)?.Label??"_待确认";task.Confidence=r.Confidence;task.ConfidenceBand=r.Confidence>=Settings.Value.HighThreshold?"较确定":r.Confidence>=Settings.Value.LocalThreshold?"可能":"不确定";task.Method=r.Method;task.BranchName=r.Branch;task.SuggestedName=r.Name;
+  task.FolderId=r.FolderId;task.TargetLabel=Taxonomy.Nodes.FirstOrDefault(n=>n.Id==r.FolderId)?.Label??"_Review";task.Confidence=r.Confidence;task.ConfidenceBand=r.Confidence>=Settings.Value.HighThreshold?"High":r.Confidence>=Settings.Value.LocalThreshold?"Likely":"Uncertain";task.Method=r.Method;task.BranchName=r.Branch;task.SuggestedName=r.Name;
  }
  async Task Remote(FileTask task,Evidence e,List<FolderNode> candidates,CancellationTokenSource cancellation){
   try{
@@ -113,29 +113,29 @@ public sealed class SmartFilesEngine : IAsyncDisposable {
    if(PrivacyBoundary.NeedsThumbnail(e)&&Settings.Value.SendThumbnail&&!string.IsNullOrWhiteSpace(Settings.Value.VisionModel))thumbnail=MetadataExtractor.Thumbnail(task.Path);
    var result=await Provider.SuggestAsync(e,candidates,thumbnail,cancellation.Token);
    if(result!=null&&Valid(task))Apply(task,result);
-   else if(task.Confidence<Settings.Value.LocalThreshold)task.Note+=" 信息不足或 API 未启用，请人工检查";
+   else if(task.Confidence<Settings.Value.LocalThreshold)task.Note+=" Not enough information or API disabled; review manually";
    if(Valid(task))Finish(task);else Cancel(task.Path);
   }catch(OperationCanceledException){}catch(Exception ex){Log.Write("remote_failed",ex);if(Valid(task))Finish(task);}
   finally{active.TryRemove(task.Id,out _);cancellation.Dispose();}
  }
  void Finish(FileTask task){
-  if(!Valid(task)){Cancel(task.Path);return;}task.Status="待确认";Save(task);
+  if(!Valid(task)){Cancel(task.Path);return;}task.Status="Pending";Save(task);
   if((DateTime.UtcNow-task.SeenUtc).TotalMilliseconds<=Settings.Value.InteractiveTtlMs)Ready?.Invoke(task);
  }
  public async Task ConfirmAsync(FileTask task,string folderId,string filename,bool branchApproved){
-  if(stop.IsCancellationRequested)throw new IOException("程序正在退出");
-  if(task.Status!="待确认"||!Valid(task)||!admitted.ContainsKey(task.Stamp.Id))throw new IOException("任务已失效，禁止处理未知或旧文件");
-  var source=Settings.Value.Sources.FirstOrDefault(s=>string.Equals(s.Path,task.SourcePath,StringComparison.OrdinalIgnoreCase))??throw new IOException("来源已移除");
-  if(!source.Enabled||source.Policy==SourcePolicy.Ignore)throw new IOException("该来源未启用");
+  if(stop.IsCancellationRequested)throw new IOException("SmartFiles is shutting down");
+  if(task.Status!="Pending"||!Valid(task)||!admitted.ContainsKey(task.Stamp.Id))throw new IOException("Task expired. Unknown or existing files cannot be processed.");
+  var source=Settings.Value.Sources.FirstOrDefault(s=>string.Equals(s.Path,task.SourcePath,StringComparison.OrdinalIgnoreCase))??throw new IOException("Source was removed");
+  if(!source.Enabled||source.Policy==SourcePolicy.Ignore)throw new IOException("This source is disabled");
   var folder=Taxonomy.Resolve(folderId);
-  if(source.Policy==SourcePolicy.AskBeforeMove&&!source.WarningAcknowledged)throw new IOException("请先确认来源路径警告");
+  if(source.Policy==SourcePolicy.AskBeforeMove&&!source.WarningAcknowledged)throw new IOException("Confirm the source path warning first");
   if(task.BranchName.Length>0&&branchApproved)folder=Taxonomy.Add(folderId,task.BranchName);
   FileIdentity.SafeName(filename);
-  if(!string.Equals(Path.GetExtension(filename),Path.GetExtension(task.Path),StringComparison.OrdinalIgnoreCase))throw new IOException("重命名不得更改扩展名");
+  if(!string.Equals(Path.GetExtension(filename),Path.GetExtension(task.Path),StringComparison.OrdinalIgnoreCase))throw new IOException("Renaming cannot change the file extension");
   if(source.Policy!=SourcePolicy.ClassifyOnly){
-   task.Status="整理中";Save(task);
+   task.Status="Organizing";Save(task);
    try{Transactions.StrictHash=Settings.Value.StrictHash;await Transactions.MoveAsync(task.Path,Path.Combine(folder.Path,filename),task.Stamp,task.Method);}
-   catch{task.Status="待确认";Save(task);throw;}
+   catch{task.Status="Pending";Save(task);throw;}
   }
   Rules.Learn(task.Features,folder.Id);pending.TryRemove(task.Id,out _);History.Delete("pending",task.Id);Updated?.Invoke();
  }

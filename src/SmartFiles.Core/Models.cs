@@ -2,6 +2,7 @@ using System.Text.Json;
 namespace SmartFiles.Core;
 public enum SourcePolicy { NormalMove, AskBeforeMove, ClassifyOnly, Ignore }
 public sealed class Source {
+ [System.Text.Json.Serialization.JsonIgnore] public string DisplayName {get=>EnglishLabels.SourceName(Name);set=>Name=value;}
  public string Name {get;set;}=""; public string Path {get;set;}=""; public bool Enabled {get;set;}
  public SourcePolicy Policy {get;set;}=SourcePolicy.NormalMove;
  public bool Recursive {get;set;} public bool WarningAcknowledged {get;set;}
@@ -28,17 +29,19 @@ public sealed class Settings {
  public bool StrictHash {get;set;}
 }
 public record Stamp(string Id,long Length,long WriteTicks);
-public record FolderNode(string Id,string Path,string Label,string Description="",string Keywords="");
+public record FolderNode(string Id,string Path,string Label,string Description="",string Keywords="") { [System.Text.Json.Serialization.JsonIgnore] public string DisplayLabel=>BuiltinFolders.Display(Label); }
 public sealed class FileTask {
  public string Id {get;set;}=Guid.NewGuid().ToString("N"); public string Path {get;set;}="";
  public string SourcePath {get;set;}=""; public string SourceName {get;set;}="";
  public Stamp Stamp {get;set;}=new("",0,0); public DateTime SeenUtc {get;set;}=DateTime.UtcNow;
- public string FolderId {get;set;}=""; public string TargetLabel {get;set;}="_待确认";
- public string Method {get;set;}="待分析"; public double Confidence {get;set;}
- public string Status {get;set;}="待确认"; public string SuggestedName {get;set;}="";
- public string BranchName {get;set;}=""; public string Note {get;set;}="";
+ public string FolderId {get;set;}=""; public string TargetLabel {get;set;}="_Review";
+ string method="Not analyzed"; public string Method {get=>method;set=>method=EnglishLabels.Text(value);} public double Confidence {get;set;}
+ string status="Pending"; public string Status {get=>status;set=>status=EnglishLabels.Text(value);} public string SuggestedName {get;set;}="";
+ public string BranchName {get;set;}=""; string note=""; public string Note {get=>note;set=>note=EnglishLabels.Text(value);}
  public string Features {get;set;}=""; public string BatchId {get;set;}="";
- public string ConfidenceBand {get;set;}=""; public string ConfidenceDisplay=>$"{Confidence:P0} {ConfidenceBand}";
+ string confidenceBand=""; public string ConfidenceBand {get=>confidenceBand;set=>confidenceBand=EnglishLabels.Text(value);} public string ConfidenceDisplay=>$"{Confidence:P0} {ConfidenceBand}";
+ [System.Text.Json.Serialization.JsonIgnore] public string TargetDisplayLabel=>BuiltinFolders.Display(TargetLabel);
+ [System.Text.Json.Serialization.JsonIgnore] public string SourceDisplayName=>EnglishLabels.SourceName(SourceName);
  public string Name=>System.IO.Path.GetFileName(Path);
 }
 public sealed class MoveRecord {
@@ -46,7 +49,7 @@ public sealed class MoveRecord {
  public string Target {get;set;}=""; public string Temp {get;set;}=""; public string TempIdentity {get;set;}="";
  public Stamp Original {get;set;}=new("",0,0); public Stamp? Result {get;set;}
  public string State {get;set;}="Preparing"; public DateTime Time {get;set;}=DateTime.UtcNow;
- public string StateLabel=>State switch{"Completed"=>"已整理","Undone"=>"已撤销","Rollback"=>"已回滚","Preparing"=>"准备中","Moving"=>"移动中","Verifying"=>"校验中","Published"=>"正在完成",_=>"需要恢复检查"};
+ public string StateLabel=>State switch{"Completed"=>"Organized","Undone"=>"Undone","Rollback"=>"Rolled back","Preparing"=>"Preparing","Moving"=>"Moving","Verifying"=>"Verifying","Published"=>"Finishing",_=>"Recovery review needed"};
  public string Method {get;set;}=""; public string UndoOf {get;set;}=""; public string Error {get;set;}="";
 }
 public sealed class LearnedRule {

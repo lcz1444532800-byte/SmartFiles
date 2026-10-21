@@ -19,7 +19,7 @@ public sealed class SourceWatcher : IDisposable {
   foreach(var f in Directory.EnumerateFiles(src.Path,"*",new EnumerationOptions{RecurseSubdirectories=src.Recursive,AttributesToSkip=FileAttributes.ReparsePoint,IgnoreInaccessible=false}))try{baseline.TryAdd(FileIdentity.Read(f).Id,0);}catch{}
   armed=true;loop=Task.Run(Run);}catch{watcher.Dispose();stop.Dispose();throw;}
  }
- void Overflow(){armed=false;watcher.EnableRaisingEvents=false;error(source.Name+"：监听事件溢出，已暂停。请重新启用；不会扫描补处理旧文件。");}
+ void Overflow(){armed=false;watcher.EnableRaisingEvents=false;error(source.Name+": File events overflowed. Monitoring paused; re-enable it to continue. Existing files will not be scanned.");}
  void Queue(string kind,string path,string old){if(!armed)return;if(!events.Writer.TryWrite((kind,path,old)))Overflow();}
  async Task Run(){
   try{await foreach(var (kind,path,old) in events.Reader.ReadAllAsync(stop.Token)){

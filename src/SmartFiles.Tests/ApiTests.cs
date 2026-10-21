@@ -27,7 +27,7 @@ static class ApiTests {
  static string Response(string id)=>Json.Encode(new{choices=new[]{new{message=new{content=Json.Encode(new{target_folder_id=id,confidence=.9})}}}});
  public static async Task Run(string root){
   Directory.CreateDirectory(root);var s=new SettingsService(root);s.Value.TextModel="test";s.Value.SendFilename=false;s.Value.SendMetadata=false;s.Value.SendText=false;s.SaveKey("synthetic-test-key-not-real");
-  var nodes=new[]{new FolderNode("allowed",root,"学习")};
+  var nodes=new[]{new FolderNode("allowed",root,"Study")};
   using(var server=new Server(_=>Task.FromResult((200,"{\"data\":[{\"id\":\"text-model\",\"input_modalities\":[\"text\"]},{\"id\":\"vision-model\",\"input_modalities\":[\"text\",\"image\"]}]}")))){s.Value.BaseUrl=server.Url;s.SaveKey("synthetic-test-key-not-real");using var api=new DeepSeekProvider(s);var list=await api.ListModelsAsync(server.Url,s.ReadKey(),CancellationToken.None);Assert(list.Count==2&&list.Single(x=>x.Id=="vision-model").Vision,"model discovery capabilities failed");Assert(s.ReadKey("https://example.org/v1")=="","key leaked to another endpoint");}
 
   using(var server=new Server(async _=>{await Task.Delay(150);return(200,Response("allowed"));})){
@@ -67,14 +67,14 @@ static class ApiTests {
   var gone=Path.Combine(source,"gone.txt");File.WriteAllText(gone,"untrusted text");await Task.Delay(400);File.Delete(gone);await Task.Delay(1400);
   Assert(engine.Pending.Count==0&&notices==0,"deleted file / late result notified");
   var path=Path.Combine(source,"new.txt");File.WriteAllText(path,"untrusted text");await Task.Delay(2000);
-  Assert(engine.Pending.Count==1&&engine.Pending[0].Status=="待确认"&&notices==0,"TTL must queue silently");
+  Assert(engine.Pending.Count==1&&engine.Pending[0].Status=="Pending"&&notices==0,"TTL must queue silently");
   Assert(File.Exists(path),"moved without approval");
   var task=engine.Pending[0];await engine.ConfirmAsync(task,task.FolderId,task.Name,false);
   Assert(!File.Exists(path)&&engine.Pending.Count==0,"explicit confirm did not move");
   int before=server.Requests.Count;
   for(int i=0;i<100;i++)File.WriteAllBytes(Path.Combine(source,$"IMG_{i:000}.png"),Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aD1cAAAAASUVORK5CYII="));
-  for(int i=0;i<150&&engine.Pending.Count(x=>x.Status=="待确认")<100;i++)await Task.Delay(100);
-  Assert(engine.Pending.Count==100&&engine.Pending.All(x=>x.Status=="待确认"),"image batch did not settle");
+  for(int i=0;i<150&&engine.Pending.Count(x=>x.Status=="Pending")<100;i++)await Task.Delay(100);
+  Assert(engine.Pending.Count==100&&engine.Pending.All(x=>x.Status=="Pending"),"image batch did not settle");
   Assert(server.Requests.Count-before==settings.Value.ImageApiBudgetPerBatch,"100 images must obey per-batch API budget");
  }
 }

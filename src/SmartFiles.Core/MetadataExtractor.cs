@@ -5,7 +5,7 @@ using System.Xml;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 namespace SmartFiles.Core;
-public record Evidence(string Name,string Extension,long Size,string Metadata,string Text,bool Image,bool OcrDerived=false,string SourceType="下载/接收",double LocalConfidence=0);
+public record Evidence(string Name,string Extension,long Size,string Metadata,string Text,bool Image,bool OcrDerived=false,string SourceType="Download/received",double LocalConfidence=0);
 public sealed class MetadataExtractor {
  public static bool IsImage(string path)=>new[]{".jpg",".jpeg",".png",".bmp",".webp",".tif",".tiff"}.Contains(Path.GetExtension(path).ToLowerInvariant());
  public Evidence Extract(string path) {
@@ -28,13 +28,13 @@ public sealed class MetadataExtractor {
     using var pdf=UglyToad.PdfPig.PdfDocument.Open(path);meta=pdf.Information.Title??"";if(pdf.NumberOfPages>0)text=pdf.GetPage(1).Text;
    }else if(ext==".msi"){
     if(size<=128L*1024*1024)meta=MsiMetadata.Read(path);
-    try{using var cert=System.Security.Cryptography.X509Certificates.X509Certificate.CreateFromSignedFile(path);meta+=" 签名证书（未在线验证）："+cert.Subject;}catch{}
+    try{using var cert=System.Security.Cryptography.X509Certificates.X509Certificate.CreateFromSignedFile(path);meta+=" Signing certificate (not verified online): "+cert.Subject;}catch{}
    }else if(ext==".exe"){
-    var v=FileVersionInfo.GetVersionInfo(path);meta=$"{v.FileDescription} {v.ProductName} {v.CompanyName} {v.FileVersion}";try{using var cert=System.Security.Cryptography.X509Certificates.X509Certificate.CreateFromSignedFile(path);meta+=" 签名证书（未在线验证）："+cert.Subject;}catch{}
+    var v=FileVersionInfo.GetVersionInfo(path);meta=$"{v.FileDescription} {v.ProductName} {v.CompanyName} {v.FileVersion}";try{using var cert=System.Security.Cryptography.X509Certificates.X509Certificate.CreateFromSignedFile(path);meta+=" Signing certificate (not verified online): "+cert.Subject;}catch{}
    }else if(IsImage(path)){
     using var stream=File.OpenRead(path);var decoder=BitmapDecoder.Create(stream,BitmapCreateOptions.DelayCreation,BitmapCacheOption.None);var frame=decoder.Frames[0];
     meta=$"{frame.PixelWidth}×{frame.PixelHeight}";
-    if(frame.Metadata is BitmapMetadata m)meta+=$" 相机:{m.CameraManufacturer} {m.CameraModel} 标题:{m.Title}";
+    if(frame.Metadata is BitmapMetadata m)meta+=$" Camera:{m.CameraManufacturer} {m.CameraModel} Title:{m.Title}";
    }
   }catch{}
   return new(Path.GetFileName(path),ext,size,meta[..Math.Min(2000,meta.Length)],text[..Math.Min(4000,text.Length)],IsImage(path));

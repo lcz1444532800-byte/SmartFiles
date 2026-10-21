@@ -7,18 +7,18 @@ public sealed class SettingsService {
  public string Home {get;} public Settings Value {get;private set;}
  public SettingsService(string home) {
   Home=System.IO.Path.GetFullPath(home);FileIdentity.ValidatePath(Home);
-  if (!Home.StartsWith(@"D:\",StringComparison.OrdinalIgnoreCase)||!Directory.Exists(@"D:\")) throw new IOException("D 盘不可用；禁止回退 C 盘");
+  if (!Home.StartsWith(@"D:\",StringComparison.OrdinalIgnoreCase)||!Directory.Exists(@"D:\")) throw new IOException("Drive D: is unavailable; falling back to C: is not allowed");
   Directory.CreateDirectory(System.IO.Path.Combine(Home,"Data"));
   var p=System.IO.Path.Combine(Home,"Data","settings.json"); Value=File.Exists(p)?Json.Decode<Settings>(File.ReadAllText(p)):new();
  }
  public void Reload(){Value=Json.Decode<Settings>(File.ReadAllText(System.IO.Path.Combine(Home,"Data","settings.json")));}
  public static void Validate(Settings Value) {
   NormalizeEndpoint(Value.BaseUrl);
-  if(!double.IsFinite(Value.LocalThreshold)||!double.IsFinite(Value.HighThreshold))throw new InvalidDataException("阈值必须是有效数字");
-  if(Value.WorkerIdleSeconds is <30 or >600||Value.HistoryMaxCount is <100 or >100000||Value.HistoryMaxDays is <1 or >3650)throw new InvalidDataException("后台或历史保留参数超出范围");
-  if(Value.BatchWindowMs is <500 or >5000||Value.ImageApiBudgetPerBatch is <0 or >30)throw new InvalidDataException("批次时间应为 500–5000 毫秒，图片上限应为 0–30");
-  if(Value.CandidateCount is <5 or >15||Value.ApiConcurrency is <1 or >2||Value.LocalThreshold is <.5 or >1||Value.HighThreshold<Value.LocalThreshold||Value.HighThreshold>1||Value.InteractiveTtlMs<0||Value.ApiTimeoutSeconds is <1 or >120) throw new InvalidDataException("设置超出安全范围");
-  if(!Value.Root.StartsWith(@"D:\",StringComparison.OrdinalIgnoreCase))throw new InvalidDataException("分类根目录必须在 D 盘");
+  if(!double.IsFinite(Value.LocalThreshold)||!double.IsFinite(Value.HighThreshold))throw new InvalidDataException("Thresholds must be finite numbers");
+  if(Value.WorkerIdleSeconds is <30 or >600||Value.HistoryMaxCount is <100 or >100000||Value.HistoryMaxDays is <1 or >3650)throw new InvalidDataException("Background or history retention settings are out of range");
+  if(Value.BatchWindowMs is <500 or >5000||Value.ImageApiBudgetPerBatch is <0 or >30)throw new InvalidDataException("Batch window must be 500–5000 ms and image limit 0–30");
+  if(Value.CandidateCount is <5 or >15||Value.ApiConcurrency is <1 or >2||Value.LocalThreshold is <.5 or >1||Value.HighThreshold<Value.LocalThreshold||Value.HighThreshold>1||Value.InteractiveTtlMs<0||Value.ApiTimeoutSeconds is <1 or >120) throw new InvalidDataException("Settings are outside the allowed range");
+  if(!Value.Root.StartsWith(@"D:\",StringComparison.OrdinalIgnoreCase))throw new InvalidDataException("The category root must be on drive D:");
  }
  readonly object saveGate=new();
  public void Save()=>Replace(Value);
@@ -26,7 +26,7 @@ public sealed class SettingsService {
   var p=System.IO.Path.Combine(Home,"Data","settings.json");File.WriteAllText(p+".new",Json.Encode(candidate));File.Move(p+".new",p,true);Value=candidate;}
  }
  public static string NormalizeEndpoint(string url){
-  if(!Uri.TryCreate(url.Trim().TrimEnd('/'),UriKind.Absolute,out var uri)||(!uri.IsLoopback&&uri.Scheme!="https")||(uri.Scheme!="https"&&uri.Scheme!="http")||uri.UserInfo.Length>0||uri.Query.Length>0||uri.Fragment.Length>0)throw new InvalidDataException("请填写有效的 HTTPS API 基础地址");
+  if(!Uri.TryCreate(url.Trim().TrimEnd('/'),UriKind.Absolute,out var uri)||(!uri.IsLoopback&&uri.Scheme!="https")||(uri.Scheme!="https"&&uri.Scheme!="http")||uri.UserInfo.Length>0||uri.Query.Length>0||uri.Fragment.Length>0)throw new InvalidDataException("Enter a valid HTTPS API base URL");
   return uri.GetLeftPart(UriPartial.Path).TrimEnd('/');
  }
  string KeyPath(string endpoint)=>System.IO.Path.Combine(Home,"Data","api-key-"+Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(NormalizeEndpoint(endpoint))))+".dpapi");

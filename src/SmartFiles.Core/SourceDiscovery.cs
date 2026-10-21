@@ -8,7 +8,7 @@ public sealed class SourceDiscovery {
  readonly ISourceAdapter[] adapters=[new BrowserSourceAdapter(),new ChatSourceAdapter()];
  public List<Source> Discover(string root) {
   var all=adapters.SelectMany(x=>x.Discover()).Where(x=>Directory.Exists(x.Path)).ToList();
-  all.Add(new(){Name="主动投递 · _Inbox",Path=Path.Combine(root,"_Inbox"),Enabled=true});
+  all.Add(new(){Name="Drop folder · _Inbox",Path=Path.Combine(root,"_Inbox"),Enabled=true});
   return all.GroupBy(x=>Path.GetFullPath(x.Path),StringComparer.OrdinalIgnoreCase).Select(g=>new Source{Name=string.Join(" / ",g.Select(x=>x.Name).Distinct()),Path=g.Key,Enabled=g.Any(x=>x.Enabled),Recursive=g.Any(x=>x.Recursive),Policy=g.Any(x=>x.Policy==SourcePolicy.AskBeforeMove)?SourcePolicy.AskBeforeMove:SourcePolicy.NormalMove}).ToList();
  }
 }
@@ -35,19 +35,19 @@ public sealed class ChatSourceAdapter : ISourceAdapter {
  public IEnumerable<Source> Discover() {
   var results=new List<Source>();
   // Only inspect documented/configured roots, then recognized receive leaves. Never watch a chat root.
-  var roots=new List<(string,string)>{("微信",Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),"WeChat Files")),("QQ",Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),"Tencent Files"))};
+  var roots=new List<(string,string)>{("WeChat",Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),"WeChat Files")),("QQ",Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),"Tencent Files"))};
   using(var k=Registry.CurrentUser.OpenSubKey(@"Software\Tencent\WeChat")){
-   if(k?.GetValue("FileSavePath") is string p&&Path.IsPathRooted(p)){roots.Add(("微信",p));roots.Add(("微信",Path.Combine(p,"WeChat Files")));}
+   if(k?.GetValue("FileSavePath") is string p&&Path.IsPathRooted(p)){roots.Add(("WeChat",p));roots.Add(("WeChat",Path.Combine(p,"WeChat Files")));}
   }
-  roots.Add(("微信",@"D:\微信记录\xwechat_files"));roots.Add(("微信",@"D:\微信记录\WeChat Files"));roots.Add(("QQ",@"D:\qq记录\Tencent Files"));
-  if(Directory.Exists(@"D:\QQ下载"))results.Add(new(){Name="QQ保存目录（请核对）",Path=@"D:\QQ下载",Recursive=true,Policy=SourcePolicy.AskBeforeMove});
+  roots.Add(("WeChat","D:\\\u5fae\u4fe1\u8bb0\u5f55\\xwechat_files"));roots.Add(("WeChat","D:\\\u5fae\u4fe1\u8bb0\u5f55\\WeChat Files"));roots.Add(("QQ","D:\\qq\u8bb0\u5f55\\Tencent Files"));
+  if(Directory.Exists("D:\\QQ\u4e0b\u8f7d"))results.Add(new(){Name="QQ downloads (verify path)",Path="D:\\QQ\u4e0b\u8f7d",Recursive=true,Policy=SourcePolicy.AskBeforeMove});
   foreach(var (name,root) in roots.Distinct()){
    if(!Directory.Exists(root))continue;
    foreach(var account in Directory.EnumerateDirectories(root).Take(50)){
-    foreach(var relative in name=="微信"?new[]{@"FileStorage\File",@"msg\file"}:new[]{"FileRecv"}){
+    foreach(var relative in name=="WeChat"?new[]{@"FileStorage\File",@"msg\file"}:new[]{"FileRecv"}){
      var p=Path.Combine(account,relative);
      if(!Directory.Exists(p))continue;
-     results.Add(new(){Name=name+" 接收文件",Path=p,Recursive=true,Policy=SourcePolicy.AskBeforeMove});
+     results.Add(new(){Name=name+" received files",Path=p,Recursive=true,Policy=SourcePolicy.AskBeforeMove});
     }
    }
   }return results;

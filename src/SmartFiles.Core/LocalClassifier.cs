@@ -3,7 +3,7 @@ namespace SmartFiles.Core;
 public record Recommendation(string FolderId,double Confidence,string Method,string Branch="",string Name="");
 public sealed class RuleEngine(HistoryService history) {
  public List<LearnedRule> Rules=>history.Read<LearnedRule>("rule");
- public void Save(LearnedRule rule){if(string.IsNullOrWhiteSpace(rule.Keyword)||rule.Keyword.Length>80)throw new InvalidDataException("关键词长度无效");history.Put("rule",rule.Id,rule);}
+ public void Save(LearnedRule rule){if(string.IsNullOrWhiteSpace(rule.Keyword)||rule.Keyword.Length>80)throw new InvalidDataException("Invalid keyword length");history.Put("rule",rule.Id,rule);}
  public void Delete(string id)=>history.Delete("rule",id);
  public void Learn(string features,string folderId){
   var snapshot=Rules;foreach(var word in Tokens(features).Where(x=>x.Length>=2).Take(12)){
@@ -18,13 +18,13 @@ public sealed class RuleEngine(HistoryService history) {
  public Recommendation? Match(string text,IReadOnlyList<FolderNode> nodes){
   var ids=nodes.Select(x=>x.Id).ToHashSet();
   var best=Rules.Where(r=>r.Enabled&&r.Hits>=3&&ids.Contains(r.FolderId)&&text.Contains(r.Keyword,StringComparison.OrdinalIgnoreCase)).OrderByDescending(x=>x.Confidence).FirstOrDefault();
-  return best==null?null:new(best.FolderId,best.Confidence,"历史学习");
+  return best==null?null:new(best.FolderId,best.Confidence,"Learned rule");
  }
 }
 public sealed class CandidateSelector {
  public List<FolderNode> Select(string text,IReadOnlyList<FolderNode> nodes,int count,Dictionary<string,double>? semantic=null) {
   var words=RuleEngine.Tokens(text).Distinct().ToArray();
-  return nodes.Where(n=>n.Label!="_待确认").Select(n=>new {Node=n,Score=words.Sum(w=>(n.Label+" "+n.Description+" "+n.Keywords).Contains(w,StringComparison.OrdinalIgnoreCase)?(w.Length>2?3:1):0)+(semantic?.GetValueOrDefault(n.Id)??0)*5})
+  return nodes.Where(n=>!BuiltinFolders.IsReview(n.Label)).Select(n=>new {Node=n,Score=words.Sum(w=>(n.Label+" "+n.Description+" "+n.Keywords).Contains(w,StringComparison.OrdinalIgnoreCase)?(w.Length>2?3:1):0)+(semantic?.GetValueOrDefault(n.Id)??0)*5})
    .OrderByDescending(n=>n.Score).ThenByDescending(n=>n.Node.Label.Count(c=>c=='\\')).Take(Math.Clamp(count,5,15)).Select(n=>n.Node).ToList();
  }
 }
@@ -33,19 +33,19 @@ public sealed class LocalClassifier(RuleEngine rules) {
   var text=e.Name+" "+e.Metadata+" "+e.Text;
   var learned=rules.Match(text,nodes);if(learned!=null)return learned;
   string? label=e.Extension switch{
-   ".exe" or ".msi"=>"软件\\安装包", ".safetensors" or ".gguf" or ".onnx"=>"AI与开发\\AI模型",
-   ".mp4" or ".mkv" or ".mov" or ".avi"=>"媒体\\视频",
-   ".mp3" or ".wav" or ".flac"=>"媒体\\音频",
-   ".xlsx" or ".xls" or ".csv"=>"办公文档\\表格",
-   ".pptx" or ".ppt"=>"办公文档\\演示",
-   ".zip" or ".7z" or ".rar"=>"软件\\压缩包",_=>null};
-  var name=nodes.FirstOrDefault(n=>n.Label==label);
-  if(name!=null)return new(name.Id,e.Extension is ".zip" or ".7z" or ".rar"?.83:.98,"本地规则");
+   ".exe" or ".msi"=>"Software\\Installers", ".safetensors" or ".gguf" or ".onnx"=>"AI and Development\\AI Models",
+   ".mp4" or ".mkv" or ".mov" or ".avi"=>"Media\\Video",
+   ".mp3" or ".wav" or ".flac"=>"Media\\Audio",
+   ".xlsx" or ".xls" or ".csv"=>"Office Documents\\Spreadsheets",
+   ".pptx" or ".ppt"=>"Office Documents\\Presentations",
+   ".zip" or ".7z" or ".rar"=>"Software\\Archives",_=>null};
+  var name=nodes.FirstOrDefault(n=>BuiltinFolders.Matches(n.Label,label??""));
+  if(name!=null)return new(name.Id,e.Extension is ".zip" or ".7z" or ".rar"?.83:.98,"Local rules");
   var matches=nodes.Where(n=>!n.Label.StartsWith("_")).Select(n=>new{N=n,Score=n.Label.Split('\\').Count(p=>p.Length>1&&text.Contains(p,StringComparison.OrdinalIgnoreCase))}).Where(x=>x.Score>0).OrderByDescending(x=>x.Score).ThenByDescending(x=>x.N.Label.Length).ToList();
-  if(matches.Count>0){var m=matches[0];return new(m.N.Id,m.Score>=3?.96:m.Score==2?.88:.65,"文件名 / metadata");}
-  if(e.Image&&Regex.IsMatch(e.Name,"screenshot|屏幕截图|截屏",RegexOptions.IgnoreCase)){
-   var node=nodes.FirstOrDefault(n=>n.Label=="图片与素材\\截图");if(node!=null)return new(node.Id,.82,"本地规则");
+  if(matches.Count>0){var m=matches[0];return new(m.N.Id,m.Score>=3?.96:m.Score==2?.88:.65,"Filename / metadata");}
+  if(e.Image&&Regex.IsMatch(e.Name,"screenshot|\u5c4f\u5e55\u622a\u56fe|\u622a\u5c4f",RegexOptions.IgnoreCase)){
+   var node=nodes.FirstOrDefault(n=>BuiltinFolders.Matches(n.Label,"Images and Assets\\Screenshots"));if(node!=null)return new(node.Id,.82,"Local rules");
   }
-  return new(nodes.FirstOrDefault(n=>n.Label=="_待确认")?.Id??"",0,"需要人工确认");
+  return new(nodes.FirstOrDefault(n=>BuiltinFolders.IsReview(n.Label))?.Id??"",0,"Manual review needed");
  }
 }

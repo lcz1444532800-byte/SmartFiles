@@ -8,14 +8,14 @@ public sealed class FileTransactionService(HistoryService history,string home,st
  public async Task<MoveRecord> MoveAsync(string source,string target,Stamp expected,string method,string undoOf="",CancellationToken ct=default) {
   await mutex.WaitAsync(ct); try {
    source=Path.GetFullPath(source);target=Path.GetFullPath(target);
-   if(string.IsNullOrEmpty(undoOf)&&!FileIdentity.Under(target,root))throw new IOException("目标越过分类根目录");
-   if(!string.IsNullOrEmpty(undoOf)){var original=history.Read<MoveRecord>("transaction").SingleOrDefault(x=>x.Id==undoOf&&x.State=="Completed");if(original==null||!string.Equals(source,original.Target,StringComparison.OrdinalIgnoreCase)||!string.Equals(target,original.Source,StringComparison.OrdinalIgnoreCase)||expected!=original.Result)throw new IOException("撤销请求不匹配已完成事务");}
+   if(string.IsNullOrEmpty(undoOf)&&!FileIdentity.Under(target,root))throw new IOException("Destination is outside the category root");
+   if(!string.IsNullOrEmpty(undoOf)){var original=history.Read<MoveRecord>("transaction").SingleOrDefault(x=>x.Id==undoOf&&x.State=="Completed");if(original==null||!string.Equals(source,original.Target,StringComparison.OrdinalIgnoreCase)||!string.Equals(target,original.Source,StringComparison.OrdinalIgnoreCase)||expected!=original.Result)throw new IOException("Undo request does not match a completed transaction");}
    FileIdentity.ValidatePath(source);FileIdentity.ValidatePath(target);FileIdentity.SafeName(Path.GetFileName(target));
-   if(!Directory.Exists(Path.GetDirectoryName(target)))throw new IOException("目标目录已消失，请刷新分类");
-   if(File.Exists(target)||Directory.Exists(target))throw new IOException("同名冲突：请保留两个、更换名称或取消");
+   if(!Directory.Exists(Path.GetDirectoryName(target)))throw new IOException("Destination folder no longer exists. Refresh categories.");
+   if(File.Exists(target)||Directory.Exists(target))throw new IOException("Filename conflict: keep both, choose another name, or cancel");
    using var pins=FileIdentity.PinParents(source,target);
    using var handle=FileIdentity.Open(source,true);
-   if(FileIdentity.Read(handle)!=expected)throw new IOException("文件已修改或身份变化，请重新检查");
+   if(FileIdentity.Read(handle)!=expected)throw new IOException("File content or identity changed. Review it again.");
    var tx=new MoveRecord{Source=source,Target=target,Original=expected,Method=method,UndoOf=undoOf};
    history.Put("transaction",tx.Id,tx);
    bool same=!ForceCopyForTests&&string.Equals(Path.GetPathRoot(source),Path.GetPathRoot(target),StringComparison.OrdinalIgnoreCase);
@@ -37,15 +37,15 @@ public sealed class FileTransactionService(HistoryService history,string home,st
      }
      using var tempHandle=FileIdentity.Open(tx.Temp,true);
      tx.Result=FileIdentity.Read(tempHandle);tx.State="Verifying";history.Put("transaction",tx.Id,tx);
-     if(tx.Result.Length!=expected.Length||!SampleEqual(handle,tempHandle,expected.Length))throw new IOException("复制校验失败");
-     if(fullHash!=null&&!fullHash.AsSpan().SequenceEqual(HashHandle(tempHandle)))throw new IOException("完整 SHA256 校验失败");
+     if(tx.Result.Length!=expected.Length||!SampleEqual(handle,tempHandle,expected.Length))throw new IOException("Copy verification failed");
+     if(fullHash!=null&&!fullHash.AsSpan().SequenceEqual(HashHandle(tempHandle)))throw new IOException("Full SHA-256 verification failed");
      FileIdentity.Rename(tempHandle,target);
      tx.State="Published";history.Put("transaction",tx.Id,tx);
      try{FaultInjection?.Invoke("BeforeSourceDelete");FileIdentity.DeleteOpened(handle);}catch{FileIdentity.DeleteOpened(tempHandle);tx.State="Rollback";history.Put("transaction",tx.Id,tx);throw;}
     }
     // Handle disposal commits delete-on-close on a cross-volume source.
     handle.Dispose();
-    if(File.Exists(source)||!FileIdentity.Matches(target,tx.Result!))throw new IOException("移动结果需要恢复检查");
+    if(File.Exists(source)||!FileIdentity.Matches(target,tx.Result!))throw new IOException("Move result needs recovery review");
     tx.State="Completed";tx.Temp="";tx.TempIdentity="";history.Put("transaction",tx.Id,tx);return tx;
    } catch {
     if(tx.State!="Rollback"&&CleanupPartial(tx)){tx.State="Rollback";}
@@ -60,7 +60,7 @@ public sealed class FileTransactionService(HistoryService history,string home,st
   foreach(var offset in new[]{0L,Math.Max(0,len-65536)}){int n=RandomAccess.Read(a,x,offset);int m=RandomAccess.Read(b,y,offset);if(n!=m||!x.AsSpan(0,n).SequenceEqual(y.AsSpan(0,m)))return false;}return true;
  }
  public static string AvailableName(string folder,string name) {
-  FileIdentity.SafeName(name);for(int i=1;i<10000;i++){var p=Path.Combine(folder,i==1?name:$"{Path.GetFileNameWithoutExtension(name)} ({i}){Path.GetExtension(name)}");if(!File.Exists(p)&&!Directory.Exists(p))return p;}throw new IOException("同名文件过多");
+  FileIdentity.SafeName(name);for(int i=1;i<10000;i++){var p=Path.Combine(folder,i==1?name:$"{Path.GetFileNameWithoutExtension(name)} ({i}){Path.GetExtension(name)}");if(!File.Exists(p)&&!Directory.Exists(p))return p;}throw new IOException("Too many files with the same name");
  }
  bool CleanupPartial(MoveRecord tx){try{if(tx.Temp.Length==0||tx.TempIdentity.Length==0||!File.Exists(tx.Temp)||File.Exists(tx.Target)||!FileIdentity.Matches(tx.Source,tx.Original))return false;var regular=FileIdentity.Under(tx.Temp,Path.Combine(home,"TempTransfer"))&&Path.GetFileName(tx.Temp)==tx.Id+".part";var undo=tx.UndoOf.Length>0&&tx.Temp==Path.Combine(Path.GetDirectoryName(tx.Target)!,".smartfiles-"+tx.Id+".part");if(!regular&&!undo)return false;FileIdentity.ValidatePath(tx.Temp);using var pins=FileIdentity.PinParents(tx.Temp);using var h=FileIdentity.Open(tx.Temp,true);if(FileIdentity.Read(h).Id!=tx.TempIdentity)return false;FileIdentity.DeleteOpened(h);tx.Temp="";tx.TempIdentity="";return true;}catch{return false;}}
  public void Recover() {
@@ -72,12 +72,12 @@ public sealed class FileTransactionService(HistoryService history,string home,st
     if(!File.Exists(tx.Source)&&d)tx.State="Completed";
     else if(!File.Exists(tx.Source)&&FileIdentity.Matches(tx.Target,tx.Original)){tx.Result=tx.Original;tx.State="Completed";}
     else if(s&&d&&tx.Result!.Id!=tx.Original.Id){
-     FileIdentity.ValidatePath(tx.Source);FileIdentity.ValidatePath(tx.Target);using var pins=FileIdentity.PinParents(tx.Source,tx.Target);using var src=FileIdentity.Open(tx.Source,true);if(FileIdentity.Read(src)!=tx.Original)throw new IOException("源文件身份变化");using var h=FileIdentity.Open(tx.Target,true);
-     if(FileIdentity.Read(h)!=tx.Result)throw new IOException("目标身份发生变化");
+     FileIdentity.ValidatePath(tx.Source);FileIdentity.ValidatePath(tx.Target);using var pins=FileIdentity.PinParents(tx.Source,tx.Target);using var src=FileIdentity.Open(tx.Source,true);if(FileIdentity.Read(src)!=tx.Original)throw new IOException("Source file identity changed");using var h=FileIdentity.Open(tx.Target,true);
+     if(FileIdentity.Read(h)!=tx.Result)throw new IOException("Destination identity changed");
      FileIdentity.DeleteOpened(h);tx.State="Rollback";
     } else if(s&&!File.Exists(tx.Target)){
      if(tx.Temp.Length>0&&File.Exists(tx.Temp)){
-      var regular=FileIdentity.Under(tx.Temp,Path.Combine(home,"TempTransfer"))&&Path.GetFileName(tx.Temp)==tx.Id+".part";var undoTemp=tx.UndoOf.Length>0&&string.Equals(tx.Temp,Path.Combine(Path.GetDirectoryName(tx.Target)!,".smartfiles-"+tx.Id+".part"),StringComparison.OrdinalIgnoreCase);if(!regular&&!undoTemp)throw new IOException("临时路径不合法");
+      var regular=FileIdentity.Under(tx.Temp,Path.Combine(home,"TempTransfer"))&&Path.GetFileName(tx.Temp)==tx.Id+".part";var undoTemp=tx.UndoOf.Length>0&&string.Equals(tx.Temp,Path.Combine(Path.GetDirectoryName(tx.Target)!,".smartfiles-"+tx.Id+".part"),StringComparison.OrdinalIgnoreCase);if(!regular&&!undoTemp)throw new IOException("Invalid temporary path");
       // Unverified partial files are retained for manual recovery; never delete by path alone.
       if(tx.Result!=null&&FileIdentity.Matches(tx.Temp,tx.Result)){using var h=FileIdentity.Open(tx.Temp,true);if(FileIdentity.Read(h)==tx.Result)FileIdentity.DeleteOpened(h);tx.State="Rollback";}
       else tx.State="NeedsReview";
@@ -90,10 +90,10 @@ public sealed class FileTransactionService(HistoryService history,string home,st
 }
 public sealed class UndoService(FileTransactionService transactions,HistoryService history) {
  public async Task UndoAsync(MoveRecord record) {
-  if(record.State!="Completed"||record.Result==null)throw new IOException("该记录不能撤销");
-  if(!FileIdentity.Matches(record.Target,record.Result))throw new IOException("文件后来已修改、改名或移动，拒绝覆盖");
-  if(File.Exists(record.Source)||Directory.Exists(record.Source))throw new IOException("原路径已有文件，请先处理冲突");
-  await transactions.MoveAsync(record.Target,record.Source,record.Result,"撤销",record.Id);
+  if(record.State!="Completed"||record.Result==null)throw new IOException("This record cannot be undone");
+  if(!FileIdentity.Matches(record.Target,record.Result))throw new IOException("The file was modified, renamed or moved. Refusing to overwrite it.");
+  if(File.Exists(record.Source)||Directory.Exists(record.Source))throw new IOException("The original path is occupied. Resolve the conflict first.");
+  await transactions.MoveAsync(record.Target,record.Source,record.Result,"Undo",record.Id);
   record.State="Undone";history.Put("transaction",record.Id,record);
  }
 }

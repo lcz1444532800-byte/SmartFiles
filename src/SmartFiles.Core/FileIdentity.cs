@@ -14,7 +14,7 @@ public static class FileIdentity {
  }
  public static Stamp Read(SafeFileHandle h) {
   if(!GetFileInformationByHandle(h,out var x))throw new Win32Exception(Marshal.GetLastWin32Error());
-  if((x.Attr&0x400)!=0||x.Links!=1)throw new IOException("不处理重解析点或硬链接");
+  if((x.Attr&0x400)!=0||x.Links!=1)throw new IOException("Reparse points and hard links are not supported");
   return new($"{x.Volume:X8}:{x.IndexHigh:X8}{x.IndexLow:X8}",((long)x.SizeHigh<<32)|x.SizeLow,((long)x.Write.dwHighDateTime<<32)|(uint)x.Write.dwLowDateTime);
  }
  public static Stamp Read(string p){using var h=Open(p);return Read(h);}
@@ -29,15 +29,15 @@ public static class FileIdentity {
  }
  public static void DeleteOpened(SafeFileHandle h) {var m=Marshal.AllocHGlobal(1);try{Marshal.WriteByte(m,1);if(!SetFileInformationByHandle(h,4,m,1))throw new Win32Exception(Marshal.GetLastWin32Error());}finally{Marshal.FreeHGlobal(m);}}
  public static void ValidatePath(string path) {
-  var full=Path.GetFullPath(path); if(full.StartsWith(@"\\")||full.Length<3||full[1]!=':'||full.AsSpan(2).Contains(':'))throw new IOException("不允许网络路径或数据流");
+  var full=Path.GetFullPath(path); if(full.StartsWith(@"\\")||full.Length<3||full[1]!=':'||full.AsSpan(2).Contains(':'))throw new IOException("Network paths and alternate data streams are not allowed");
   for(string? p=full;p!=null;p=Path.GetDirectoryName(p)){
-   if((File.Exists(p)||Directory.Exists(p))&&(File.GetAttributes(p)&FileAttributes.ReparsePoint)!=0)throw new IOException("不处理符号链接或 junction");
+   if((File.Exists(p)||Directory.Exists(p))&&(File.GetAttributes(p)&FileAttributes.ReparsePoint)!=0)throw new IOException("Symbolic links and junctions are not supported");
   }
  }
  public static string SafeName(string name) {
-  if(string.IsNullOrWhiteSpace(name)||name.Length>150||name!=name.TrimEnd(' ','.')||name.IndexOfAny(Path.GetInvalidFileNameChars())>=0||name is "." or "..")throw new IOException("名称无效");
+  if(string.IsNullOrWhiteSpace(name)||name.Length>150||name!=name.TrimEnd(' ','.')||name.IndexOfAny(Path.GetInvalidFileNameChars())>=0||name is "." or "..")throw new IOException("Invalid name");
   var stem=name.Split('.')[0].ToUpperInvariant();
-  if(new[]{"CON","PRN","AUX","NUL","COM1","COM2","COM3","COM4","COM5","COM6","COM7","COM8","COM9","LPT1","LPT2","LPT3","LPT4","LPT5","LPT6","LPT7","LPT8","LPT9"}.Contains(stem))throw new IOException("保留名称");
+  if(new[]{"CON","PRN","AUX","NUL","COM1","COM2","COM3","COM4","COM5","COM6","COM7","COM8","COM9","LPT1","LPT2","LPT3","LPT4","LPT5","LPT6","LPT7","LPT8","LPT9"}.Contains(stem))throw new IOException("Reserved name");
   return name;
  }
  public static bool Under(string path,string root)=>Path.GetFullPath(path).StartsWith(Path.GetFullPath(root).TrimEnd('\\')+"\\",StringComparison.OrdinalIgnoreCase);

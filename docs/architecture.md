@@ -1,26 +1,29 @@
-# SmartFiles 当前架构
+# Architecture
 
-Watcher 等；Worker 干活；UI 让我看。只有 Watcher 默认长期存在。
+Watcher waits. Worker processes. The UI lets you review. Only Watcher stays running by default.
 
 ```mermaid
 flowchart LR
- FS[Windows 文件事件] --> W[Watcher：完成检测 / 去重 / 新文件身份]
- W --> Q[Data/Queue 显式任务]
- Q --> K[Worker：本地提取 / 分类 / 必要时最小描述 API]
- K --> A[短命 AIWorker：OCR / BGE / TinyCLIP]
- K --> D[SQLite 待确认]
+ FS[Windows file events] --> W[Watcher: completion and deduplication]
+ W --> Q[Explicit durable queue]
+ Q --> K[On-demand Worker]
+ K --> A[Short-lived OCR / BGE / TinyCLIP]
+ K --> API[Optional minimal-description API]
+ K --> DB[SQLite pending results]
  K --> T[Windows Toast]
- T --> U[用户打开 WPF UI]
- D --> U
- U --> F[本地确认 / FileTransactionService / Undo Move]
+ T --> UI[User opens WPF UI]
+ DB --> UI
+ UI --> TX[Confirmed local transaction / undo]
 ```
 
-Watcher 不依赖 WPF、OCR、ONNX、SQLite 或网络。阻塞等事件，不作周期扫描。启动身份基线不入队，暂停期间文件不补扫。
-Worker 默认 45 秒空闲退出，可配置 30–600 秒；模型子进程随父进程释放。UI 默认关闭即退出；CloseToTray 可选默认关闭。
-自启仅 Watcher --startup，延迟 20 秒。通知原生系统 Toast；点击协议打开 --open-task。TTL 晚到只更新待确认，最多三次 Worker 失败后转人工。
+Watcher has no WPF, OCR, ONNX, SQLite, or network dependency. It blocks on events, not periodic scans. Registration records existing file identities without queuing them. Files received while paused become part of the next baseline. Recovery reads only explicitly recorded unfinished jobs.
 
-API 仅有 JSON Chat Completions 和模型列表，没有完整文件上传能力。字段和片段有界，真实目录脱敏，OCR 足够时不附图。返回 ID 映射由本地校验，不能执行任意命令。
-默认日志 50 MiB、缓存 100 MiB、模型缓存 100 MiB；历史 10000 条 / 180 天；不永久保存用户文件 embedding、全文、请求或响应副本。只保留每个模型的一份正式权重。
-撤销不复制备份；只用身份校验后的 Move。活动跨卷临时数据保存恢复信息，终态清理已证明归属的数据；未知数据不擅删。
+Worker defaults to a 45-second idle timeout, configurable from 30 to 600 seconds. Models load only when needed, in a short-lived child contained by a Windows Job Object. Three consecutive worker failures send a task to manual review instead of an infinite restart loop.
 
-性能、实际运行限制和最终构建状态见 verification-report.md。Low Background Mode 预留，未实现定时 Scanner。
+UI close exits by default; tray residency is optional. Sign-in startup launches only Watcher after 20 seconds. Toast activation opens `--open-task`. Results beyond the interactive TTL update pending results without opening or focusing the UI. Low Background Mode is reserved; there is no periodic Scanner implementation.
+
+API operations are JSON Chat Completions and model discovery. No complete-file upload endpoint exists. Text is bounded and paths are redacted. Sufficient OCR suppresses thumbnails. Validated category IDs map to local paths; AI cannot run commands or arbitrary file operations.
+
+Logs, caches, model cache, and terminal history have retention limits. Temporary files are removed only when ownership and transaction state are known. Undo moves files back without copying backups. SQLite compaction requires substantial reusable space rather than a high-frequency timer.
+
+New tasks and default category trees use English. Legacy task labels normalize on reading; known default categories receive English display aliases and remain addressable by their original IDs. Existing paths, filenames, keywords, and custom labels are never renamed by the language update.
