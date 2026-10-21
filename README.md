@@ -2,6 +2,12 @@
 
 Windows 新下载、接收文件分类助手。只接纳启用监听后产生的新文件事件，给出分类建议，经用户确认后整理；旧文件不动。
 
+## 直接下载
+
+[Windows x64 运行包与 SHA-256 校验文件](https://github.com/lcz1444532800-byte/SmartFiles/releases/latest)。解压至 `D:\`，运行 `D:\SmartFilesApp\Release\SmartFiles.exe`。这是便携运行包，包含正式 BGE/TinyCLIP 模型和必要运行时；OCR 资源依赖见下文。
+
+已有安装请先退出 SmartFiles 并备份配置，再更新程序文件；不要删除自己的 `Data` 或用户分类目录。
+
 ## 运行架构
 
 - **Watcher** 等待 Windows 文件事件，是唯一长期后台进程，不加载 WPF、OCR、ONNX 或网络模块。
