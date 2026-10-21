@@ -1,0 +1,1 @@
+<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><IsAotCompatible>true</IsAotCompatible></PropertyGroup><ItemGroup><Compile Include="../SmartFiles.Core/Models.cs" Link="Models.cs"/><Compile Include="../SmartFiles.Core/FileIdentity.cs" Link="FileIdentity.cs"/><Compile Include="../SmartFiles.Core/SourceWatcher.cs" Link="SourceWatcher.cs"/></ItemGroup></Project>

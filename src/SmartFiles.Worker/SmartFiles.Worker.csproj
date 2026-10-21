@@ -1,0 +1,1 @@
+<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><OutputType>WinExe</OutputType><TargetFramework>net8.0-windows10.0.19041.0</TargetFramework><AssemblyName>SmartFiles.Worker</AssemblyName><ApplicationIcon>../SmartFiles/Assets/SmartFiles.ico</ApplicationIcon></PropertyGroup><ItemGroup><ProjectReference Include="../SmartFiles.Core/SmartFiles.Core.csproj"/></ItemGroup></Project>

@@ -1,0 +1,7 @@
+{
+  "revision": "9463a9c508a344c837ffefe9d724f3827bf2dc79",
+  "variant": "TinyCLIP ViT-8M/16 + Text-3M int8; replaces MobileCLIP due model license constraints",
+  "repository": "onnx-community/TinyCLIP-ViT-8M-16-Text-3M-YFCC15M-ONNX",
+  "license": "MIT",
+  "sha256": "10921310ddef06557ec1598d1260470a0a4db53f70ffe0deb60b946dcad6d27a"
+}

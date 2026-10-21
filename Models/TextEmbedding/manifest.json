@@ -1,0 +1,7 @@
+{
+  "revision": "75c43b069aac4d136ba6bc1122f995fedcfd2781",
+  "sha256": "15b717c382bcb518ba457b93ea6850ede7f4f1cd8937454aa06972366cd19bcc",
+  "base_model": "BAAI/bge-small-zh-v1.5",
+  "license": "Base model MIT; ONNX conversion by Xenova",
+  "repository": "Xenova/bge-small-zh-v1.5"
+}
