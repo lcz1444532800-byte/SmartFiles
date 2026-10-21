@@ -59,4 +59,4 @@ Builds are unsigned. Smart App Control may block them; a GitHub release is not t
 
 ## Licensing
 
-No open-source license has been assigned to the application code. Public visibility does not grant redistribution or commercial rights. Third-party components and models retain their licenses; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and `licenses/`.
+SmartFiles application code is released under the [MIT License](LICENSE). Third-party components and models retain their own licenses; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and `licenses/`.
